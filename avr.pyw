@@ -52,6 +52,11 @@ mstep_count = step_tau/main_tau     #- число миллишагов в шаг
 row_count = 10      #- высота списков с командами
 
 
+import socket
+s = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
+
+s.connect (( "msn.com", 80))
+
 ############################ socketio server #############################
 from flask import Flask, render_template
 import socketio
@@ -81,82 +86,89 @@ def loop_wrapper(loop, data):
         lbx_prog.append(command["name"])
     loop(event_click)
 
-def isAuth(sid):
-    return sid == onlyThisUser
+def authenticate_user(environ):
+	global onlyThisUser
+	username = environ['HTTP_USER_AGENT']
+	if not onlyThisUser:
+		onlyThisUser = username
+	return username
+
+def isAuth(username):
+	return onlyThisUser == username
 
 # event с названием 'connect'
 @sio.event
 def connect(sid, environ):
-    # выводит при подключении любого пользователя
-    # к socket server с указанием его уникального индентификатора (SID)
-    global userSid
-    global onlyThisUser
-
-    userSid = sid
-    if not onlyThisUser:
-        onlyThisUser = sid
+    username = authenticate_user(environ)
+    sio.save_session(sid, {'username': username})
     print('connect', sid)
 
 # event с названием 'loop_begin'
 # используется для команды 'СТАРТ', чтобы начать цикл бесконечный цикл
 @sio.event
 def loop_begin(sid, data):
-    if(isAuth(sid)):
-        # очищаем чтобы вставить наши комманды
-        fnc_clearlstout(event_click)
-        # запускаем цикл
-        loop_wrapper(fnc_loop, data)
+	session = sio.get_session(sid)
+	if isAuth(session['username']):
+	    # очищаем чтобы вставить наши комманды
+	    fnc_clearlstout(event_click)
+	    # запускаем цикл
+	    loop_wrapper(fnc_loop, data)
 
 # event с названием 'start_loop',
 # используется для команды 'СТАРТ', чтобы начать цикл 1 раз
 @sio.event
 def start_loop(sid, data):
-    if(isAuth(sid)):
-        # очищаем чтобы вставить наши комманды
-        fnc_clearlstout(event_click)
-        # запускаем цикл
-        loop_wrapper(fnc_start, data)
-        # устанавливаем индекс
-        lbx_prog.set_index(int(data["index"]))
+	session = sio.get_session(sid)
+	if isAuth(session['username']):
+	    # очищаем чтобы вставить наши комманды
+	    fnc_clearlstout(event_click)
+	    # запускаем цикл
+	    loop_wrapper(fnc_start, data)
+	    # устанавливаем индекс
+	    lbx_prog.set_index(int(data["index"]))
 
 @sio.event
 def execute(sid, data):
-    if(isAuth(sid)):
-        # очищаем чтобы вставить наши комманды
-        fnc_clearlstout(event_click)
-        # запускаем цикл
-        lbx_prog.set_index(int(data["index"]))
-        print('set: ' + str(lbx_prog.get_index()))
-        loop_wrapper(fnc_step, data)
-        sio.emit('result', { 'status': 'ok' }, room=sid)
+	session = sio.get_session(sid)
+	if isAuth(session['username']):
+	    # очищаем чтобы вставить наши комманды
+	    fnc_clearlstout(event_click)
+	    # запускаем цикл
+	    lbx_prog.set_index(int(data["index"]))
+	    loop_wrapper(fnc_step, data)
+	    sio.emit('result', { 'status': 'ok', 'cancel': True })
 
 # event с названием 'stop_loop'
 # используется чтобы отсановить цикл
 @sio.event
 def stop_loop(sid):
-    if(isAuth(sid)):
-        fnc_stop(event_click)
-        sio.emit('result', { 'status': 'ok' }, room=sid)
+	session = sio.get_session(sid)
+	if isAuth(session['username']):
+	    fnc_stop(event_click)
+	    sio.emit('result', { 'status': 'ok' })
 
 # event с названием 'send_data'
 # используется чтобы передать сообщение (пример: 'b0200ff')
 # и получения ответа (пример: 'Ok')
 @sio.event
 def send_data(sid, message):
-    if(isAuth(sid)):
-        edt_strout.set(message)
-        fnc_sendstrout(event_click)
+	session = sio.get_session(sid)
+	if isAuth(session['username']):
+	    edt_strout.set(message)
+	    fnc_sendstrout(event_click)
 
 # event с названием 'disconnect'
 @sio.event
 def disconnect(sid):
     global onlyThisUser
-    if(isAuth(sid)):
-        onlyThisUser = ''
+    session = sio.get_session(sid)
+    if onlyThisUser == session['username']:
+    	onlyThisUser = ''
     #показывает SID пользователя который отключился от socket server
     print('disconnect', sid)
 
-appSocket = threading.Thread( target = app.run)
+SERVER_IP_ADDR = s.getsockname ()[0]
+appSocket = threading.Thread( target = app.run, args = [SERVER_IP_ADDR, 5000])
 appSocket.daemon = True
 ###########################################################################
 
@@ -203,7 +215,7 @@ def work_in():
                     sleep(0.001)
                 busy_in = 1
                 str_in = str_in.strip()
-                sio.emit('result', { 'message': str_in.decode("UTF8") }, room = userSid)
+                sio.emit('result', { 'message': str_in.decode("UTF8") })
                 lst_in.append(str_in.decode("UTF8"))
                 busy_in = 0
                 #print ("in: ", str_in.decode("UTF8"))
