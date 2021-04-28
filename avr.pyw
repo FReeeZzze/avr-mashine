@@ -67,7 +67,7 @@ app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
 # работающий пользователь
 workingUser = ''
 # список всех подключенных пользователей
-listUsers = []
+connectedUsers = []
 
 # event клика
 event_click = '<Button-1>'
@@ -90,10 +90,10 @@ def loop_wrapper(loop, data):
     loop(event_click)
 
 def authenticate_user(environ):
-	global listUsers
+	global connectedUsers
 	global workingUser
 	username = environ['HTTP_USER_AGENT']
-	listUsers.append(username)
+	connectedUsers.append(username)
 	if not workingUser:
 		workingUser = username
 	return username
@@ -167,11 +167,11 @@ def send_data(sid, message):
 def disconnect(sid):
     global workingUser
     session = sio.get_session(sid)
-    listUsers.remove(session['username'])
-    if not len(listUsers):
+    connectedUsers.remove(session['username'])
+    if not len(connectedUsers):
     	workingUser = ''
     else:
-        workingUser = listUsers[0]
+        workingUser = connectedUsers[0]
     #показывает SID пользователя который отключился от socket server
     print('disconnect', sid)
 
