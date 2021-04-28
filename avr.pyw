@@ -62,9 +62,12 @@ from flask import Flask, render_template
 import socketio
 sio = socketio.Server(async_mode='threading', cors_allowed_origins='*', logger=True)
 app = Flask(__name__)
-userSid = ''
-onlyThisUser = ''
 app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
+
+# работающий пользователь
+workingUser = ''
+# список всех подключенных пользователей
+listUsers = []
 
 # event клика
 event_click = '<Button-1>'
@@ -87,14 +90,16 @@ def loop_wrapper(loop, data):
     loop(event_click)
 
 def authenticate_user(environ):
-	global onlyThisUser
+	global listUsers
+	global workingUser
 	username = environ['HTTP_USER_AGENT']
-	if not onlyThisUser:
-		onlyThisUser = username
+	listUsers.append(username)
+	if not workingUser:
+		workingUser = username
 	return username
 
 def isAuth(username):
-	return onlyThisUser == username
+	return workingUser == username
 
 # event с названием 'connect'
 @sio.event
@@ -160,14 +165,18 @@ def send_data(sid, message):
 # event с названием 'disconnect'
 @sio.event
 def disconnect(sid):
-    global onlyThisUser
+    global workingUser
     session = sio.get_session(sid)
-    if onlyThisUser == session['username']:
-    	onlyThisUser = ''
+    listUsers.remove(session['username'])
+    if not len(listUsers):
+    	workingUser = ''
+    else:
+        workingUser = listUsers[0]
     #показывает SID пользователя который отключился от socket server
     print('disconnect', sid)
 
-SERVER_IP_ADDR = s.getsockname ()[0]
+# 192.168.1.115 test home ip
+SERVER_IP_ADDR = '127.0.0.1'
 appSocket = threading.Thread( target = app.run, args = [SERVER_IP_ADDR, 5000])
 appSocket.daemon = True
 ###########################################################################
