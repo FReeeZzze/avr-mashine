@@ -63,13 +63,13 @@ app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
 workingUser = ''
 # список всех подключенных пользователей
 connectedUsers = []
-
 # event клика
 event_click = '<Button-1>'
 
 @app.route('/')
 def index():
     return 'hello'
+
 # функция обертка над функциями вызова цикла
 # 'loop' - функция
 # 'data' - лист
@@ -99,19 +99,17 @@ def isAuth(sid):
 def authMessage(sid):
     session = sio.get_session(sid)
     if workingUser == session['username']:
-        sio.emit('auth', { 'status': 'authorized', 'message': 'you can start working' }, room=sid)
+        sio.emit('alert', { 'status': 'authorized', 'message': 'you can start working' }, room=sid)
     else:
-        sio.emit('auth', { 'status': 'waiting', 'message': 'wait your turn' }, room=sid)
+        sio.emit('alert', { 'status': 'waiting', 'message': 'wait your turn' }, room=sid)
 
-# event с названием 'connect'
 @sio.event
 def connect(sid, environ):
     username = authenticate_user(environ)
     sio.save_session(sid, {'username': username})
     authMessage(sid)
-    print('connect', sid)
+    print('\nconnect: ', sid, '\n')
 
-# event с названием 'loop_begin'
 # используется для команды 'СТАРТ', чтобы начать цикл бесконечный цикл
 @sio.event
 def loop_begin(sid, data):
@@ -123,7 +121,6 @@ def loop_begin(sid, data):
     else:
         authMessage(sid)
 
-# event с названием 'start_loop',
 # используется для команды 'СТАРТ', чтобы начать цикл 1 раз
 @sio.event
 def start_loop(sid, data):
@@ -149,17 +146,15 @@ def execute(sid, data):
     else:
         authMessage(sid)
 
-# event с названием 'stop_loop'
 # используется чтобы отсановить цикл
 @sio.event
 def stop_loop(sid):
     if isAuth(sid):
         fnc_stop(event_click)
-        sio.emit('result', { 'status': 'ok' })
+        sio.emit('alert', { 'status': 'ok', 'message': 'loop stopped' })
     else:
         authMessage(sid)
 
-# event с названием 'send_data'
 # используется чтобы передать сообщение (пример: 'b0200ff')
 # и получения ответа (пример: 'Ok')
 @sio.event
@@ -170,7 +165,6 @@ def send_data(sid, message):
     else:
         authMessage(sid)
 
-# event с названием 'disconnect'
 @sio.event
 def disconnect(sid):
     global workingUser
@@ -180,14 +174,14 @@ def disconnect(sid):
         workingUser = ''
     else:
         workingUser = connectedUsers[0]
-    authMessage(sid)
     #показывает SID пользователя который отключился от socket server
-    print('disconnect', sid)
+    print('\ndisconnect: ', sid, '\n')
 
 # 192.168.1.115 test home ip
 SERVER_IP_ADDR = '127.0.0.1'
 appSocket = threading.Thread( target = app.run, args = [SERVER_IP_ADDR, 5000])
 appSocket.daemon = True
+appSocket.start()
 ###########################################################################
 
 
@@ -767,7 +761,6 @@ def main():
 
 
 if __name__ == '__main__':
-    appSocket.start()
     main()
     #-- запустить окно программы
     root.mainloop()
