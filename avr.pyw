@@ -84,18 +84,26 @@ def loop_wrapper(loop, data):
         lbx_prog.append(command["name"])
     loop(event_click)
 
-def authenticate_user(environ):
+# Функция для аутентификации пользователя,
+# если нет работающего пользователя, тот кто зашел автоматически им становиться
+# и добавляется в список подключенных пользователей возвращая
+# подключенного пользователя для последующей работы с ним.
+def authenticate_user(environ, sid):
     global workingUser
     username = environ['HTTP_USER_AGENT']
-    connectedUsers.append(username)
+    connectedUsers.append((username, sid))
     if not workingUser:
         workingUser = username
     return username
 
+# проверка является ли пользователь тем самым работником
+# которому предоставлен доступ работы с удаленной установкой.
 def isAuth(sid):
     session = sio.get_session(sid)
     return workingUser == session['username']
 
+# сообщение от сервера к клиенту
+# может ли пользователь работать с установкой в настоящее время
 def authMessage(sid):
     session = sio.get_session(sid)
     if workingUser == session['username']:
@@ -103,14 +111,23 @@ def authMessage(sid):
     else:
         sio.emit('alert', { 'status': 'waiting', 'message': 'wait your turn' }, room=sid)
 
+# сообщение для пользователя
+# сообщающее что он может работать с сервером
+# (используются пока-что после дисконнекта работающего пользователя,
+# 	чтобы уведомить пользователя стоящего в очереди за ним)
+def userWorkingNotification():
+	for user in connectedUsers:
+		if user[0] == workingUser:
+			sio.emit('alert', { 'status': 'authorized', 'message': 'you can start working' }, room=user[1])
+
 @sio.event
 def connect(sid, environ):
-    username = authenticate_user(environ)
+    username = authenticate_user(environ, sid)
     sio.save_session(sid, {'username': username})
     authMessage(sid)
     print('\nconnect: ', sid, '\n')
 
-# используется для команды 'СТАРТ', чтобы начать цикл бесконечный цикл
+# используется для команды 'СТАРТ', чтобы начать бесконечный цикл
 @sio.event
 def loop_begin(sid, data):
     if isAuth(sid):
@@ -134,6 +151,7 @@ def start_loop(sid, data):
     else:
     	authMessage(sid)
 
+# используется для команды 'Выполнить', чтобы пройти выполнить одну комманду из списка
 @sio.event
 def execute(sid, data):
     if isAuth(sid):
@@ -169,11 +187,12 @@ def send_data(sid, message):
 def disconnect(sid):
     global workingUser
     session = sio.get_session(sid)
-    connectedUsers.remove(session['username'])
+    connectedUsers.remove((session['username'], sid))
     if not len(connectedUsers):
         workingUser = ''
     else:
-        workingUser = connectedUsers[0]
+        workingUser = connectedUsers[0][0]
+    userWorkingNotification()
     #показывает SID пользователя который отключился от socket server
     print('\ndisconnect: ', sid, '\n')
 
