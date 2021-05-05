@@ -52,7 +52,12 @@ mstep_count = step_tau/main_tau     #- число миллишагов в шаг
 row_count = 10      #- высота списков с командами
 
 
-############################ socketio server #############################
+#########################################
+#										#
+#			SocketIO server.			#
+#									 	#
+#########################################
+
 from flask import Flask, render_template
 import socketio
 sio = socketio.Server(async_mode='threading', cors_allowed_origins='*', logger=True)
@@ -70,12 +75,14 @@ event_click = '<Button-1>'
 def index():
     return 'hello'
 
-# функция обертка над функциями вызова цикла
-# 'loop' - функция
-# 'data' - лист
+"""
+ Функция обертка над функциями вызова цикла.
+ 'loop' - callback функция
+ 'data' - лист
+
+"""
 def loop_wrapper(loop, data):
     global step_tau
-    global event_click
     # устанавливаем шаг
     step_tau = data["step"]
     edt_step.set(data["step"])
@@ -84,10 +91,14 @@ def loop_wrapper(loop, data):
         lbx_prog.append(command["name"])
     loop(event_click)
 
-# Функция для аутентификации пользователя,
-# если нет работающего пользователя, тот кто зашел автоматически им становиться
-# и добавляется в список подключенных пользователей возвращая
-# подключенного пользователя для последующей работы с ним.
+
+"""
+ Функция для аутентификации пользователя,
+ если нет работающего пользователя, тот кто зашел автоматически им становиться
+ и добавляется в список подключенных пользователей возвращая
+ подключенного пользователя для последующей работы с ним.
+
+"""
 def authenticate_user(environ, sid):
     global workingUser
     username = environ['HTTP_USER_AGENT']
@@ -96,52 +107,65 @@ def authenticate_user(environ, sid):
         workingUser = username
     return username
 
-# проверка является ли пользователь тем самым работником
-# которому предоставлен доступ работы с удаленной установкой.
-def isAuth(sid):
+
+"""
+ Проверка является ли пользователь тем самым работником
+ которому предоставлен доступ работы с удаленной установкой.
+
+"""
+def verify_user(sid):
     session = sio.get_session(sid)
     return workingUser == session['username']
 
-# сообщение от сервера к клиенту
-# может ли пользователь работать с установкой в настоящее время
-def authMessage(sid):
+
+"""
+ Сообщение от сервера к клиенту
+ может ли пользователь работать с установкой в настоящее время или нет.
+
+"""
+def alert_auth_message(sid):
     session = sio.get_session(sid)
     if workingUser == session['username']:
-        sio.emit('alert', { 'status': 'authorized', 'message': 'you can start working' }, room=sid)
+        sio.emit('alert', { 'status': 'authorized', 'message': 'You can start working!' }, room=sid)
     else:
-        sio.emit('alert', { 'status': 'waiting', 'message': 'wait your turn' }, room=sid)
+        sio.emit('alert', { 'status': 'waiting', 'message': 'Wait your turn!' }, room=sid)
 
-# сообщение для пользователя
-# сообщающее что он может работать с сервером
-# (используются пока-что после дисконнекта работающего пользователя,
-# 	чтобы уведомить пользователя стоящего в очереди за ним)
-def userWorkingNotification():
+
+"""
+ Сообщение для пользователя
+ сообщающее что он может работать с сервером
+ (используются пока-что после дисконнекта работающего пользователя,
+ 	чтобы уведомить пользователя стоящего в очереди за ним).
+
+"""
+def workeruser_notification():
 	for user in connectedUsers:
 		if user[0] == workingUser:
-			sio.emit('alert', { 'status': 'authorized', 'message': 'you can start working' }, room=user[1])
+			sio.emit('alert', { 'status': 'authorized', 'message': 'You can start working!' }, room=user[1])
+
 
 @sio.event
 def connect(sid, environ):
     username = authenticate_user(environ, sid)
     sio.save_session(sid, {'username': username})
-    authMessage(sid)
+    alert_auth_message(sid)
     print('\nconnect: ', sid, '\n')
 
 # используется для команды 'СТАРТ', чтобы начать бесконечный цикл
 @sio.event
 def loop_begin(sid, data):
-    if isAuth(sid):
+    if verify_user(sid):
         # очищаем чтобы вставить наши комманды
         fnc_clearlstout(event_click)
         # запускаем цикл
         loop_wrapper(fnc_loop, data)
     else:
-        authMessage(sid)
+        alert_auth_message(sid)
 
 # используется для команды 'СТАРТ', чтобы начать цикл 1 раз
 @sio.event
 def start_loop(sid, data):
-    if isAuth(sid):
+    if verify_user(sid):
         # очищаем чтобы вставить наши комманды
         fnc_clearlstout(event_click)
         # запускаем цикл
@@ -149,12 +173,12 @@ def start_loop(sid, data):
         # устанавливаем индекс
         lbx_prog.set_index(int(data["index"]))
     else:
-    	authMessage(sid)
+    	alert_auth_message(sid)
 
 # используется для команды 'Выполнить', чтобы пройти выполнить одну комманду из списка
 @sio.event
 def execute(sid, data):
-    if isAuth(sid):
+    if verify_user(sid):
         # очищаем чтобы вставить наши комманды
         fnc_clearlstout(event_click)
         # запускаем цикл
@@ -162,26 +186,26 @@ def execute(sid, data):
         loop_wrapper(fnc_step, data)
         sio.emit('result', { 'status': 'ok', 'cancel': True })
     else:
-        authMessage(sid)
+        alert_auth_message(sid)
 
 # используется чтобы отсановить цикл
 @sio.event
 def stop_loop(sid):
-    if isAuth(sid):
+    if verify_user(sid):
         fnc_stop(event_click)
-        sio.emit('alert', { 'status': 'ok', 'message': 'loop stopped' })
+        sio.emit('alert', { 'status': 'ok', 'message': 'loop stopped!' })
     else:
-        authMessage(sid)
+        alert_auth_message(sid)
 
 # используется чтобы передать сообщение (пример: 'b0200ff')
 # и получения ответа (пример: 'Ok')
 @sio.event
-def send_data(sid, message):
-    if isAuth(sid):
+def send_message(sid, message):
+    if verify_user(sid):
         edt_strout.set(message)
         fnc_sendstrout(event_click)
     else:
-        authMessage(sid)
+        alert_auth_message(sid)
 
 @sio.event
 def disconnect(sid):
@@ -192,8 +216,7 @@ def disconnect(sid):
         workingUser = ''
     else:
         workingUser = connectedUsers[0][0]
-    userWorkingNotification()
-    #показывает SID пользователя который отключился от socket server
+    workeruser_notification()
     print('\ndisconnect: ', sid, '\n')
 
 # 192.168.1.115 test home ip
@@ -201,7 +224,13 @@ SERVER_IP_ADDR = '127.0.0.1'
 appSocket = threading.Thread( target = app.run, args = [SERVER_IP_ADDR, 5000])
 appSocket.daemon = True
 appSocket.start()
-###########################################################################
+
+#########################################
+#										#
+#		The end of code server.			#
+#										#
+#########################################
+
 
 
 #-- потоки отправки отправки и приема сообщений
