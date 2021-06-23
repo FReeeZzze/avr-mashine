@@ -152,7 +152,6 @@ def auth_user(sid, user):
 def change_worker(sid, user):
     global workingUser
     workingUser = user['id']
-    print(workingUser)
     sio.emit('users', { 'users': connectedUsers, 'worker': workingUser })
 
 
@@ -222,6 +221,7 @@ def disconnect(sid):
     		workingUser = connectedUsers[0][0]['id']
     	else:
     		workingUser = ''
+    	sio.emit('users', { 'users': connectedUsers, 'worker': workingUser })
     workeruser_notification()
     print('\ndisconnect: ', sid, '\n')
 
