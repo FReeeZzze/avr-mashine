@@ -57,11 +57,10 @@ row_count = 10      #- высота списков с командами
 #			SocketIO server.			#
 #									 	#
 #########################################
-
-from flask import Flask, render_template, Response
-import cv2
+import os
+from flask import Flask
 import socketio
-sio = socketio.Server(async_mode='threading', cors_allowed_origins='*', logger=True)
+sio = socketio.Server(async_mode='threading', cors_allowed_origins='*', logger=True, ping_interval=50, ping_timeout=120)
 app = Flask(__name__)
 app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
 
@@ -71,26 +70,6 @@ workingUser = ''
 connectedUsers = []
 # event клика
 event_click = '<Button-1>'
-
-camera = cv2.VideoCapture(0)
-
-def gen_frames():  # generate frame by frame from camera
-    while True:
-        # Capture frame-by-frame
-        success, frame = camera.read()  # read the camera frame
-        if not success:
-            break
-        else:
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
-            # sio.emit('image',  frame)
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')  # concat frame one by one and show result
-
-@app.route('/video_feed')
-def video_feed():
-    #Video streaming route. Put this in the src attribute of an img tag
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/')
 def index():
@@ -114,29 +93,16 @@ def loop_wrapper(loop, data):
 
 
 """
- Функция для аутентификации пользователя,
- если нет работающего пользователя, тот кто зашел автоматически им становиться
- и добавляется в список подключенных пользователей возвращая
- подключенного пользователя для последующей работы с ним.
-
-"""
-def authenticate_user(environ, sid):
-    global workingUser
-    username = environ['HTTP_USER_AGENT']
-    connectedUsers.append((username, sid))
-    if not workingUser:
-        workingUser = username
-    return username
-
-
-"""
  Проверка является ли пользователь тем самым работником
  которому предоставлен доступ работы с удаленной установкой.
 
 """
 def verify_user(sid):
-    session = sio.get_session(sid)
-    return workingUser == session['username']
+    if len(connectedUsers):
+        session = sio.get_session(sid)
+        return workingUser == session['username']['id']
+    else:
+        return False
 
 
 """
@@ -145,11 +111,12 @@ def verify_user(sid):
 
 """
 def alert_auth_message(sid):
-    session = sio.get_session(sid)
-    if workingUser == session['username']:
-        sio.emit('alert', { 'status': 'authorized', 'message': 'You can start working!' }, room=sid)
-    else:
-        sio.emit('alert', { 'status': 'waiting', 'message': 'Wait your turn!' }, room=sid)
+    if len(connectedUsers):
+        session = sio.get_session(sid)
+        if workingUser == session['username']['id']:
+            sio.emit('alert', { 'status': 'authorized', 'message': 'Вы управляете системой!' }, room=sid)
+        else:
+            sio.emit('alert', { 'status': 'waiting', 'message': 'Ждите своей очереди!' }, room=sid)
 
 
 """
@@ -160,17 +127,34 @@ def alert_auth_message(sid):
 
 """
 def workeruser_notification():
-	for user in connectedUsers:
-		if user[0] == workingUser:
-			sio.emit('alert', { 'status': 'authorized', 'message': 'You can start working!' }, room=user[1])
+	if len(connectedUsers):
+		for user in connectedUsers:
+			if user[0]['id'] == workingUser:
+				sio.emit('alert', { 'status': 'authorized', 'message': 'Вы управляете системой!' }, room=user[1])
 
 
 @sio.event
 def connect(sid, environ):
-    username = authenticate_user(environ, sid)
-    sio.save_session(sid, {'username': username})
-    alert_auth_message(sid)
     print('\nconnect: ', sid, '\n')
+
+@sio.event
+def auth_user(sid, user):
+    global workingUser
+    global connectedUsers
+    sio.save_session(sid, {'username': user})
+    connectedUsers.append((user, sid))
+    sio.emit('users', { 'users': connectedUsers, 'worker': workingUser })
+    if not workingUser:
+        workingUser = user['id']
+    alert_auth_message(sid)
+
+@sio.event
+def change_worker(sid, user):
+    global workingUser
+    workingUser = user['id']
+    print(workingUser)
+    sio.emit('users', { 'users': connectedUsers, 'worker': workingUser })
+
 
 # используется для команды 'СТАРТ', чтобы начать бесконечный цикл
 @sio.event
@@ -231,17 +215,21 @@ def send_message(sid, message):
 @sio.event
 def disconnect(sid):
     global workingUser
-    session = sio.get_session(sid)
-    connectedUsers.remove((session['username'], sid))
-    if not len(connectedUsers):
-        workingUser = ''
-    else:
-        workingUser = connectedUsers[0][0]
+    if len(connectedUsers):
+    	session = sio.get_session(sid)
+    	connectedUsers.remove((session['username'], sid))
+    	if len(connectedUsers):
+    		workingUser = connectedUsers[0][0]['id']
+    	else:
+    		workingUser = ''
     workeruser_notification()
     print('\ndisconnect: ', sid, '\n')
 
 # 192.168.1.115 test home ip
-SERVER_IP_ADDR = '127.0.0.1'
+import socket
+env_addr = os.environ.get("SERVER_ADDR")
+#socket.gethostbyname(socket.gethostname())
+SERVER_IP_ADDR = '192.168.1.111'
 appSocket = threading.Thread( target = app.run, args = [SERVER_IP_ADDR, 5000])
 appSocket.daemon = True
 appSocket.start()
